@@ -90,6 +90,12 @@ private[spark] object HiveUtils extends Logging {
     .stringConf
     .createWithDefault("builtin")
 
+  val CONVERT_METASTORE_BIGQUERY = buildConf("spark.sql.hive.convertMetastoreBigquery")
+    .doc("When set to true, use spark-bigquery-connector provider to process " +
+      "bigquery tables created by using the HiveQL syntax, instead of Hive serde.")
+    .booleanConf
+    .createWithDefault(true)
+
   val CONVERT_METASTORE_PARQUET = buildConf("spark.sql.hive.convertMetastoreParquet")
     .doc("When set to true, the built-in Parquet reader and writer are used to process " +
       "parquet tables created by using the HiveQL syntax, instead of Hive serde.")

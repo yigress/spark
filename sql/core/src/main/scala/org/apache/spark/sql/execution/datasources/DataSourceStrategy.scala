@@ -226,6 +226,19 @@ class FindDataSourceTable(sparkSession: SparkSession) extends Rule[LogicalPlan] 
     val catalog = sparkSession.sessionState.catalog
     catalog.getCachedPlan(qualifiedTableName, new Callable[LogicalPlan]() {
       override def call(): LogicalPlan = {
+        if (table.properties.getOrElse("convert-hive-bq", "false").equalsIgnoreCase("true")) {
+          import org.apache.spark.sql.sources.v2.{DataSourceV2, ReadSupport}
+          import org.apache.spark.sql.execution.datasources.v2.{DataSourceV2Relation, DataSourceV2Utils}
+          val cls = DataSource.lookupDataSource(table.provider.get, sparkSession.sessionState.conf)
+          if (classOf[DataSourceV2].isAssignableFrom(cls)) {
+            val ds = cls.newInstance().asInstanceOf[DataSourceV2]
+            if (ds.isInstanceOf[ReadSupport]) {
+              val sessionOptions = DataSourceV2Utils.extractSessionConfigs(
+                ds = ds, conf = sparkSession.sessionState.conf)
+              return DataSourceV2Relation.create(ds, sessionOptions ++ table.storage.properties)
+            }
+          }
+        }
         val pathOption = table.storage.locationUri.map("path" -> CatalogUtils.URIToString(_))
         val dataSource =
           DataSource(

@@ -368,8 +368,17 @@ private[hive] class HiveClientImpl(
     getRawTableOption(dbName, tableName).map { h =>
       // Note: Hive separates partition columns and the schema, but for us the
       // partition columns are part of the schema
-      val cols = h.getCols.asScala.map(fromHiveColumn)
-      val partCols = h.getPartCols.asScala.map(fromHiveColumn)
+      val convertBigQuery = h.getSerializationLib.toLowerCase(Locale.ROOT).contains("bigquery") &&
+        org.apache.spark.sql.internal.SQLConf.get.getConf(
+          org.apache.spark.sql.hive.HiveUtils.CONVERT_METASTORE_BIGQUERY)
+      val (bqTableProperties, bqSerdeProperties) = if (!convertBigQuery) {
+        (Nil, Nil)
+      } else {
+        (Map("spark.sql.sources.provider" -> "bigquery", "convert-hive-bq" -> "true"),
+          Map("table" -> h.getParameters.getOrDefault( "bq.table", "")))
+      }
+      val cols = if (convertBigQuery) Nil else h.getCols.asScala.map(fromHiveColumn)
+      val partCols = if (convertBigQuery) Nil else h.getPartCols.asScala.map(fromHiveColumn)
       val schema = StructType(cols ++ partCols)
 
       val bucketSpec = if (h.getNumBuckets > 0) {
@@ -398,7 +407,7 @@ private[hive] class HiveClientImpl(
         unsupportedFeatures += "skewed columns"
       }
 
-      if (h.getStorageHandler != null) {
+      if (h.getProperty("storage_handler") != null) {
         unsupportedFeatures += "storage handler"
       }
 
@@ -460,11 +469,11 @@ private[hive] class HiveClientImpl(
           serde = Option(h.getSerializationLib),
           compressed = h.getTTable.getSd.isCompressed,
           properties = Option(h.getTTable.getSd.getSerdeInfo.getParameters)
-            .map(_.asScala.toMap).orNull
+            .map(_.asScala.toMap).orNull ++ bqSerdeProperties
         ),
         // For EXTERNAL_TABLE, the table properties has a particular field "EXTERNAL". This is added
         // in the function toHiveTable.
-        properties = filteredProperties,
+        properties = filteredProperties ++ bqTableProperties,
         stats = readHiveStats(properties),
         comment = comment,
         // In older versions of Spark(before 2.2.0), we expand the view original text and store
